@@ -8,31 +8,25 @@ from api.database import Cookies, Database
 from api.schemas.video import VideoClass
 
 
-class Browserless:
-    def __init__(self, url):
-        self.url = url
-        self.browser = self.get_browser()
-        self.db = Database()
+def get_cookies():
+    db = Database()
+    session = db.get_session()
+    cookies = session.exec(select(Cookies).where(Cookies.id == "tiktok")).first()
+    cookies_dict = json.loads(cookies.value)
+    for cookie in cookies_dict:
+        if "sameSite" in cookie:
+            if cookie["sameSite"] not in ["Strict", "Lax", "None"]:
+                cookie["sameSite"] = "Lax"
+    return cookies_dict
 
-    def get_browser(self):
-        p = sync_playwright().start()
-        return p.chromium.connect_over_cdp(
-            endpoint_url=f"wss://production-sfo.browserless.io/chromium/playwright?token={BL_TOKEN}&proxy=residential"
+
+def upload_to_tiktok(video: VideoClass, description: str):
+    with sync_playwright() as p:
+        browser = p.chromium.connect(
+            ws_endpoint=f"wss://production-sfo.browserless.io/chromium/playwright?token={BL_TOKEN}&proxy=residential"
         )
-
-    def get_cookies(self):
-        session = self.db.get_session()
-        cookies = session.exec(select(Cookies).where(Cookies.key == "tiktok")).first()
-        cookies_dict = json.loads(cookies.value)  # type: ignore
-        for cookie in cookies_dict:
-            if "sameSite" in cookie:
-                if cookie["sameSite"] not in ["Strict", "Lax", "None"]:
-                    cookie["sameSite"] = "Lax"
-        return cookies_dict
-
-    def upload_to_tiktok(self, video: VideoClass, description: str):
-        context = self.browser.new_context()
-        context.add_cookies(self.get_cookies())
+        context = browser.new_context()
+        context.add_cookies(get_cookies())
 
         page = context.new_page()
         page.goto("https://www.tiktok.com/tiktokstudio/upload?from=creator_center")
@@ -60,9 +54,3 @@ class Browserless:
         page.locator("button[data-e2e='post_video_button']").click()
         log.info("Clicking post button")
         page.wait_for_load_state("networkidle")
-
-        page.close()
-        context.close()
-
-    def close(self):
-        self.browser.close()

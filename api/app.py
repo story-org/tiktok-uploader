@@ -2,13 +2,13 @@ from asyncio import to_thread
 from typing import Annotated
 
 from aiohttp import ClientSession
-from fastapi import Body, FastAPI, Request, UploadFile
+from fastapi import Body, FastAPI, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import Field
 
 from api.database import Cookies, Database
 from api.schemas.video import VideoClass
 from api.services.google_genai import generate_video_description
+from api.services.tiktok_upload import upload_to_tiktok
 
 app = FastAPI()
 app.add_middleware(
@@ -42,14 +42,15 @@ async def upload_file(
         name=name,
         mime_type="video/mp4",
     )
-    response = await to_thread(generate_video_description, video)
-    return {"status": "success", "response": response}
+    desc = await to_thread(generate_video_description, video)
+    await to_thread(upload_to_tiktok, video, desc)
+    return {"status": "success", "response": desc}
 
 
 @app.post("/cookies/{id}")
 async def update_cookies(id: str, file: UploadFile):
     db = Database()
     value = await file.read()
-    cookies = Cookies(id=id, value=value)
+    cookies = Cookies(id=id, value=value.decode("utf-8"))
     await to_thread(db.update_cookies, cookies)
     return {"status": "success"}
